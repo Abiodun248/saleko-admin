@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Saleko Admin • Fee Calculator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-slate-50 text-slate-900">
+  <div class="min-h-screen flex">
+    <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 hidden md:flex flex-col"></aside>
+    <main class="flex-1 min-w-0">
+      <header id="topbar" class="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-slate-200"></header>
+      <div id="content" class="px-4 md:px-8 py-6">
+        <div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
+          <!-- Inputs -->
+          <section class="xl:col-span-2 bg-white border border-slate-200 rounded-2xl">
+            <div class="p-5 border-b border-slate-200">
+              <div class="font-semibold">What would this customer pay?</div>
+              <div class="text-sm text-slate-500 mt-1">Same calculation service as checkout, so the two can never disagree.</div>
+              <div class="mt-3 flex items-center gap-2 text-sm">
+                <span class="text-slate-500">QA preset</span>
+                <select id="preset" class="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 bg-white"><option value="">PRD §5.3 worked example…</option></select>
+              </div>
+            </div>
+            <div class="p-5 space-y-4 text-sm">
+              <div class="grid grid-cols-2 gap-3">
+                <label class="block"><span class="text-slate-600">LGA</span><select id="lga" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"></select></label>
+                <label class="block"><span class="text-slate-600">Landmark</span><input id="lmSearch" list="lmList" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="Search or leave blank"><datalist id="lmList"></datalist></label>
+              </div>
+              <div id="lmNote" class="text-xs text-slate-500 -mt-2"></div>
+
+              <div>
+                <div class="flex items-center gap-2"><span class="text-slate-600">Cart</span>
+                  <div class="ml-auto inline-flex rounded-lg border border-slate-200 p-0.5 text-xs">
+                    <button data-mode="products" class="mode px-2.5 py-1 rounded-md">Pick products</button>
+                    <button data-mode="weight" class="mode px-2.5 py-1 rounded-md">Enter weights</button></div></div>
+                <div id="lines" class="mt-2 space-y-2"></div>
+                <button id="addLine" class="mt-2 text-emerald-700 text-sm hover:underline">+ Add line</button>
+              </div>
+
+              <label class="block"><span class="text-slate-600">Order value (₦)</span>
+                <input id="subtotal" type="number" min="0" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2">
+                <span class="text-xs text-slate-400">Cart subtotal after product discounts and coupons, before delivery and VAT. Auto-filled from picked products.</span></label>
+
+              <div class="grid grid-cols-2 gap-3">
+                <label class="block"><span class="text-slate-600">Customer</span><select id="cust" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"></select></label>
+                <label class="block"><span class="text-slate-600">Channel</span><select id="chan" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"><option value="web">Web</option><option value="ios">iOS</option><option value="android">Android</option></select></label>
+              </div>
+
+              <details class="rounded-xl border border-dashed border-slate-300 p-3">
+                <summary class="cursor-pointer text-slate-600">What-if (planning only)</summary>
+                <div class="grid grid-cols-2 gap-3 mt-3">
+                  <label class="block"><span class="text-slate-600">Universal switch</span><select id="wiUni" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"><option value="">Use live setting</option><option value="0">Off</option><option value="25">25% off</option><option value="50">50% off</option><option value="75">75% off</option><option value="100">Free</option></select></label>
+                  <label class="block"><span class="text-slate-600">Evaluate rules at (WAT)</span><input id="wiAt" type="datetime-local" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"></label>
+                </div>
+                <div class="text-xs text-slate-400 mt-2">What-if uses today's prices; scheduled price changes aren't simulated. Results are marked “What-if”.</div>
+              </details>
+            </div>
+          </section>
+
+          <!-- Output -->
+          <section class="xl:col-span-3 space-y-4" id="out"></section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script src="delivery_seed.js"></script>
+<script src="delivery_core.js"></script>
+<script>
+  const { esc, naira } = DL;
+  const ok = DL.mount({ active: "delivery_calculator.html", title: "Fee Calculator", subtitle: "Delivery → Fee Calculator · read-only tool", needs: "delivery.calculator.use" });
+  const S = DL.S;
+  let mode = "products";
+  let lines = [{ productId: "p4", qty: 1, weightKg: 4.6 }];
+  const lgaId = (n) => S.lgas.find((l) => l.name === n).id;
+  const PRESETS = [
+    ["A · 1 product 7 kg, ₦20k, Ikeja", { lga: "Ikeja", mode: "weight", lines: [{ weightKg: 7, qty: 1 }], sub: 20000 }],
+    ["B · 4 kg + 3 kg, ₦20k, Ikeja", { lga: "Ikeja", mode: "weight", lines: [{ weightKg: 4, qty: 1 }, { weightKg: 3, qty: 1 }], sub: 20000 }],
+    ["C · 1 product ×2 at 3 kg, ₦20k, Ikeja", { lga: "Ikeja", mode: "weight", lines: [{ weightKg: 3, qty: 2 }], sub: 20000 }],
+    ["D · ₦55k, Ikeja → Free rule", { lga: "Ikeja", mode: "weight", lines: [{ weightKg: 4, qty: 1 }, { weightKg: 3, qty: 1 }], sub: 55000 }],
+    ["E · same as B, ₦35k → 50% rule", { lga: "Ikeja", mode: "weight", lines: [{ weightKg: 4, qty: 1 }, { weightKg: 3, qty: 1 }], sub: 35000 }],
+    ["F · ₦55k, 15 kg, Ojo (Zone 4)", { lga: "Ojo", mode: "weight", lines: [{ weightKg: 15, qty: 1 }], sub: 55000 }],
+    ["G · Semovita only, Surulere", { lga: "Surulere", mode: "products", lines: [{ productId: "p1", qty: 1 }], sub: 12000 }],
+    ["H · Semovita + 3 kg item, Surulere", { lga: "Surulere", mode: "mixed", lines: [{ productId: "p1", qty: 1 }, { weightKg: 3, qty: 1 }], sub: 18000 }],
+    ["I · Peak Milk + 3 kg item, Surulere", { lga: "Surulere", mode: "mixed", lines: [{ productId: "p2", qty: 1 }, { weightKg: 3, qty: 1 }], sub: 8000 }],
+    ["J · 4 kg, ₦12k, YABATECH landmark", { lga: "Lagos Mainland", lm: "lm191", mode: "weight", lines: [{ weightKg: 4, qty: 1 }], sub: 12000 }],
+    ["K · same as B, universal 50% off", { lga: "Ikeja", mode: "weight", lines: [{ weightKg: 4, qty: 1 }, { weightKg: 3, qty: 1 }], sub: 20000, uni: 50 }],
+    ["L · same as B, ₦35k, universal 25% off", { lga: "Ikeja", mode: "weight", lines: [{ weightKg: 4, qty: 1 }, { weightKg: 3, qty: 1 }], sub: 35000, uni: 25 }],
+  ];
+
+  function init() {
+    document.getElementById("lga").innerHTML = S.lgas.filter((l) => l.status === "active").map((l) => `<option value="${l.id}">${esc(l.name)}</option>`).join("");
+    document.getElementById("lga").value = lgaId("Ikeja");
+    document.getElementById("cust").innerHTML = `<option value="">Guest checkout</option>` + S.customers.map((c) => `<option value="${c.id}">${esc(c.name)}${DL.customerClasses(c).length ? " · " + DL.customerClasses(c).map(DL.className).join(", ") : ""}</option>`).join("");
+    document.getElementById("preset").innerHTML += PRESETS.map((p, i) => `<option value="${i}">${esc(p[0])}</option>`).join("");
+    fillLandmarks();
+    document.getElementById("lga").onchange = () => { document.getElementById("lmSearch").value = ""; fillLandmarks(); calc(); };
+    ["lmSearch", "subtotal", "cust", "chan", "wiUni", "wiAt"].forEach((id) => document.getElementById(id).addEventListener("input", calc));
+    document.querySelectorAll(".mode").forEach((b) => b.onclick = () => { mode = b.dataset.mode; lines = mode === "weight" ? [{ weightKg: 5, qty: 1 }] : [{ productId: "p4", qty: 1 }]; renderLines(); });
+    document.getElementById("addLine").onclick = () => { lines.push(mode === "weight" ? { weightKg: 1, qty: 1 } : { productId: "p9", qty: 1 }); renderLines(); };
+    document.getElementById("preset").onchange = (e) => {
+      if (e.target.value === "") return;
+      const p = PRESETS[e.target.value][1];
+      document.getElementById("lga").value = lgaId(p.lga); fillLandmarks();
+      document.getElementById("lmSearch").value = p.lm ? S.landmarks.find((l) => l.id === p.lm).name : "";
+      mode = p.mode === "products" ? "products" : "weight"; lines = p.lines.map((l) => ({ ...l }));
+      document.getElementById("cust").value = ""; document.getElementById("wiUni").value = p.uni != null ? String(p.uni) : "";
+      renderLines(); document.getElementById("subtotal").value = p.sub; calc();
+    };
+    renderLines();
+  }
+  function fillLandmarks() {
+    const lga = S.lgas.find((l) => l.id === document.getElementById("lga").value);
+    document.getElementById("lmList").innerHTML = S.landmarks.filter((l) => l.lga === lga.name && l.status === "active").map((l) => `<option value="${esc(l.name)}">`).join("");
+  }
+  function selectedLandmark() {
+    const lga = S.lgas.find((l) => l.id === document.getElementById("lga").value), v = document.getElementById("lmSearch").value.trim().toLowerCase();
+    return v ? S.landmarks.find((l) => l.lga === lga.name && l.name.toLowerCase() === v) : null;
+  }
+
+  function renderLines() {
+    document.querySelectorAll(".mode").forEach((b) => b.className = "mode px-2.5 py-1 rounded-md " + (b.dataset.mode === mode ? "bg-emerald-700 text-white" : "text-slate-600"));
+    const prodOpts = (sel) => S.products.map((p) => `<option value="${p.id}" ${p.id === sel ? "selected" : ""}>${esc(p.name)} · ${p.weightKg == null ? "no weight!" : p.weightKg + " kg"}</option>`).join("");
+    document.getElementById("lines").innerHTML = lines.map((l, i) => `<div class="flex items-center gap-2">
+      ${l.productId ? `<select data-i="${i}" data-f="productId" class="flex-1 min-w-0 rounded-xl border border-slate-200 px-2 py-2 bg-white">${prodOpts(l.productId)}</select>`
+        : `<div class="flex-1 flex items-center gap-1"><input data-i="${i}" data-f="weightKg" type="number" step="0.01" min="0" value="${l.weightKg}" class="w-full rounded-xl border border-slate-200 px-3 py-2"><span class="text-slate-400">kg / unit</span></div>`}
+      <span class="text-slate-400">×</span><input data-i="${i}" data-f="qty" type="number" min="1" value="${l.qty}" class="w-16 rounded-xl border border-slate-200 px-2 py-2">
+      <button data-rm="${i}" class="text-slate-400 hover:text-rose-600 px-1 ${lines.length > 1 ? "" : "invisible"}" aria-label="Remove line">✕</button></div>`).join("");
+    document.querySelectorAll("#lines [data-f]").forEach((el) => el.oninput = () => {
+      const l = lines[el.dataset.i]; l[el.dataset.f] = el.dataset.f === "productId" ? el.value : Number(el.value);
+      if (el.dataset.f !== "weightKg") autoSubtotal(); calc();
+    });
+    document.querySelectorAll("[data-rm]").forEach((b) => b.onclick = () => { lines.splice(b.dataset.rm, 1); renderLines(); });
+    autoSubtotal(); calc();
+  }
+  function autoSubtotal() {
+    if (!lines.some((l) => l.productId)) return;
+    document.getElementById("subtotal").value = Math.round(lines.reduce((s, l) => s + (l.productId ? S.products.find((p) => p.id === l.productId).price / DL.N * l.qty : 0), 0));
+  }
+
+  function calc() {
+    const lm = selectedLandmark(), lga = S.lgas.find((l) => l.id === document.getElementById("lga").value);
+    document.getElementById("lmNote").textContent = document.getElementById("lmSearch").value.trim() && !lm ? "No exact match: treated as “My landmark is not listed” (LGA default zone)." : lm ? `${lm.name}: ${lm.km} km → Zone ${DL.finalZone(lm)}${lm.override ? " (overridden)" : ""}` : `Landmark not listed → ${lga.name} default, Zone ${lga.defaultZone}`;
+    const wiUni = document.getElementById("wiUni").value, wiAt = DL.fromLocalInput(document.getElementById("wiAt").value);
+    const saved = S.universal;
+    if (wiUni !== "") S.universal = { ...saved, level: Number(wiUni), startsAt: null, endsAt: null, zones: wiUni === "0" ? saved.zones : DL.CITY_ZONES.slice() };
+    const q = DL.quote({
+      lines: lines.map((l) => { const p = l.productId && S.products.find((x) => x.id === l.productId); return { productId: l.productId || null, name: p ? p.name : null, weightKg: p ? p.weightKg : l.weightKg, qty: Math.max(1, l.qty || 1) }; }),
+      lgaId: lga.id, landmarkId: lm ? lm.id : null, subtotal: Math.round(Number(document.getElementById("subtotal").value || 0) * DL.N),
+      customerId: document.getElementById("cust").value || null, channel: document.getElementById("chan").value, at: wiAt ? new Date(wiAt) : new Date(),
+    });
+    S.universal = saved;
+    renderOut(q, wiUni !== "" || !!wiAt);
+  }
+
+  const KIND = { pass: "bg-emerald-600", free: "bg-emerald-600", stop: "bg-rose-600", skip: "bg-slate-300", info: "bg-slate-400", result: "bg-slate-900" };
+  function renderOut(q, whatIf) {
+    const out = document.getElementById("out");
+    if (!q.ok) {
+      out.innerHTML = `<div class="bg-white border border-rose-200 rounded-2xl p-6"><div class="text-xs uppercase tracking-wide text-rose-600 font-semibold">Can't check out</div>
+        <div class="text-lg font-semibold mt-1">${esc(q.error)}</div>${q.zone ? `<div class="text-sm text-slate-500 mt-1">Zone ${q.zone} · ${esc(q.zoneVia || "")}</div>` : ""}
+        <div class="text-sm text-slate-500 mt-3">Checkout shows this message and blocks payment. It never falls back to ₦0 or a hard-coded fee.</div></div>` + traceHtml(q);
+      return;
+    }
+    const first = q.lines.find((l) => !l.exempt) || q.lines[0];
+    out.innerHTML = `
+      <div class="bg-white border border-slate-200 rounded-2xl p-6">
+        <div class="flex items-start gap-4 flex-wrap">
+          <div class="flex-1 min-w-[200px]">
+            <div class="text-xs uppercase tracking-wide text-slate-500 font-semibold">Fee charged ${whatIf ? '<span class="ml-1 normal-case rounded bg-amber-100 text-amber-800 px-1.5 py-0.5">What-if</span>' : ""}</div>
+            <div class="text-4xl font-semibold mt-1 ${q.feeKobo === 0 ? "text-emerald-700" : ""}">${q.feeKobo === 0 ? "Free" : naira(q.feeKobo)}</div>
+            <div class="text-sm text-slate-600 mt-1">${q.freeReason ? esc(q.freeReason) : q.savings.length ? "Savings: " + q.savings.map(esc).join(" · ") : "Standard fee, no discounts"}</div>
+          </div>
+          <dl class="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            <dt class="text-slate-500">Zone</dt><dd class="font-medium">Zone ${q.zone}</dd>
+            <dt class="text-slate-500">Base fee</dt><dd class="font-medium">${naira(first.base)} / unit</dd>
+            <dt class="text-slate-500">Weight surcharge</dt><dd class="font-medium">${q.lines.length === 1 ? naira(first.surcharge) : "per line ↓"}</dd>
+            <dt class="text-slate-500">Standard fee</dt><dd class="font-medium">${naira(q.standardFeeKobo)}</dd>
+            <dt class="text-slate-500">Total weight</dt><dd class="font-medium">${+q.totalWeight.toFixed(2)} kg</dd>
+          </dl>
+        </div>
+        ${q.flags.map((f) => `<div class="mt-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm px-3 py-2">🚚 ${esc(f)}</div>`).join("")}
+        ${q.nudge ? `<div class="mt-3 rounded-lg bg-emerald-50 border border-emerald-200 text-sm px-3 py-2">${q.nudge.unlocked ? `🎉 Customer sees: “You've unlocked ${q.nudge.level === 100 ? "free delivery" : q.nudge.level + "% off delivery"}”` : `Customer sees: “Add <b>${naira(q.nudge.remaining)}</b> more to get ${q.nudge.level === 100 ? "free delivery" : q.nudge.level + "% off delivery"}”<div class="h-1.5 bg-emerald-100 rounded-full mt-2"><div class="h-1.5 bg-emerald-600 rounded-full" style="width:${Math.round(q.nudge.progress * 100)}%"></div></div>`}</div>` : ""}
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-2xl overflow-x-auto">
+        <table class="min-w-[640px] w-full text-sm"><thead class="bg-slate-50 text-slate-500"><tr><th class="p-3 text-left">Line</th><th class="p-3 text-right">Qty</th><th class="p-3 text-left">Band</th><th class="p-3 text-right">Base + surcharge</th><th class="p-3 text-left">Product rule</th><th class="p-3 text-right">Per unit after</th><th class="p-3 text-right">Line total</th></tr></thead>
+        <tbody class="divide-y divide-slate-100">${q.lines.map((l) => `<tr class="${l.exempt ? "bg-emerald-50/50" : ""}">
+          <td class="p-3">${esc(l.name)}<div class="text-xs text-slate-400">${l.weightKg} kg / unit</div></td><td class="p-3 text-right">${l.qty}</td><td class="p-3 text-slate-500">${esc(l.band)}</td>
+          <td class="p-3 text-right tabular-nums">${naira(l.base)} + ${naira(l.surcharge)}</td>
+          <td class="p-3">${l.productRule ? DL.tagHtml(l.productRule.level) : '<span class="text-slate-300">—</span>'}</td>
+          <td class="p-3 text-right tabular-nums">${l.exempt ? "exempt" : l.unitAfter == null ? "—" : naira(l.unitAfter)}</td><td class="p-3 text-right tabular-nums font-medium">${l.unitAfter == null ? "—" : naira(l.lineTotal)}</td></tr>`).join("")}</tbody></table>
+        <div class="px-3 py-2 text-xs text-slate-500 border-t border-slate-100">Chargeable units: ${q.chargeableUnits ?? "—"} · Consolidation: ${q.consolidation ? q.consolidation + "% off each unit" : "not applied"} · Order-level: ${q.orderPct ? DL.levelLabel(q.orderPct) + " (" + (q.source === "universal" ? "universal switch" : esc(q.winningRule.name)) + ")" : "none"}</div>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-2xl">
+        <div class="p-4 border-b border-slate-200 font-semibold">Free-delivery rules checked</div>
+        <ul class="divide-y divide-slate-100 text-sm">${q.checks.map((c) => `<li class="p-3 flex items-start gap-3">
+          <span class="mt-0.5 h-5 w-5 shrink-0 rounded-full flex items-center justify-center text-xs ${c.matched ? "bg-emerald-600 text-white" : c.paused ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}">${c.matched ? "✓" : c.paused ? "⏸" : "✗"}</span>
+          <div class="flex-1"><div class="font-medium">${esc(c.name)} <span class="text-xs font-normal text-slate-500">· ${DL.levelLabel(c.level)}</span>${q.winningRule && q.winningRule.id === c.id ? ' <span class="text-xs rounded bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5">winning rule</span>' : ""}</div><div class="text-slate-500">${esc(c.reason)}</div></div></li>`).join("") || '<li class="p-3 text-slate-500">No rules exist.</li>'}</ul>
+      </div>` + traceHtml(q);
+  }
+  function traceHtml(q) {
+    return `<div class="bg-white border border-slate-200 rounded-2xl"><div class="p-4 border-b border-slate-200 font-semibold">Engine trace <span class="text-xs font-normal text-slate-500">(PRD §5.1 order)</span></div>
+      <ol class="p-4 space-y-3 text-sm">${q.trace.map((t, i) => `<li class="flex gap-3"><span class="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${KIND[t.kind]}"></span><div><span class="font-medium">${i + 1}. ${esc(t.title)}</span><div class="text-slate-500">${esc(t.detail)}</div></div></li>`).join("")}</ol></div>`;
+  }
+
+  if (ok) init();
+</script>
+</body>
+</html>

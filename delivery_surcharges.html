@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Saleko Admin • Weight Surcharges</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-slate-50 text-slate-900">
+  <div class="min-h-screen flex">
+    <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 hidden md:flex flex-col"></aside>
+    <main class="flex-1 min-w-0">
+      <header id="topbar" class="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-slate-200"></header>
+      <div id="content" class="px-4 md:px-8 py-6 space-y-6">
+        <div id="scheduled"></div>
+
+        <div class="flex gap-2 flex-wrap" id="tableTabs"></div>
+
+        <section class="bg-white border border-slate-200 rounded-2xl">
+          <div class="p-5 border-b border-slate-200 flex items-start gap-3 flex-wrap">
+            <div class="flex-1">
+              <div class="font-semibold" id="tblTitle">Weight bands</div>
+              <div class="text-sm text-slate-500 mt-1">Charged per unit on its own weight. A boundary belongs to the lower band: exactly 2.0 kg is in “0–2 kg”, 2.01 kg is in “&gt;2–5 kg”.</div>
+            </div>
+            <button id="btnAddBand" data-perm="delivery.surcharges.edit" class="rounded-lg bg-emerald-700 text-white px-3 py-2 text-sm hover:bg-emerald-800">Add band</button>
+          </div>
+          <div id="emptyTable" class="hidden p-10 text-center">
+            <div class="mx-auto h-12 w-12 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 text-xl">!</div>
+            <div class="font-semibold mt-3">No weight bands yet</div>
+            <div class="text-sm text-slate-500 mt-1 max-w-md mx-auto">Until this table has bands and the zone has a base fee, checkout to this zone shows “Delivery price not set for this area. Contact support” and blocks payment.</div>
+            <button id="btnCopyStd" data-perm="delivery.surcharges.edit" class="mt-4 rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">Start from the Standard bands</button>
+          </div>
+          <div class="overflow-x-auto" id="bandTableWrap">
+            <table class="min-w-[760px] w-full text-sm">
+              <thead class="bg-slate-50 text-slate-500">
+                <tr><th class="p-3 text-left">Band name</th><th class="p-3 text-right">Above (kg)</th><th class="p-3 text-right">Up to (kg)</th><th class="p-3 text-right">Surcharge</th><th class="p-3 text-right">Actions</th></tr>
+              </thead>
+              <tbody id="bands" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4" id="cards"></div>
+
+        <section class="bg-slate-50 border border-slate-200 rounded-2xl p-5">
+          <div class="font-semibold">Check a weight</div>
+          <div class="text-sm text-slate-500 mt-1">Uses the live engine and the table selected above.</div>
+          <div class="mt-3 flex items-center gap-2 flex-wrap text-sm">
+            <input id="tryKg" type="number" step="0.01" min="0" value="35" class="w-28 rounded-xl border border-slate-200 bg-white px-3 py-2"> kg
+            <span id="tryOut" class="text-slate-700"></span>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+<script src="delivery_seed.js"></script>
+<script src="delivery_core.js"></script>
+<script>
+  const { esc, naira } = DL;
+  const ok = DL.mount({ active: "delivery_surcharges.html", title: "Weight Surcharges", subtitle: "Delivery → Weight Surcharges", needs: "delivery.view" });
+  let current = new URLSearchParams(location.search).get("table") || "std";
+  const sorted = (t) => t.bands.slice().sort((a, b) => a.above - b.above);
+  const bandLabel = (above, upTo) => (upTo == null ? `Above ${above} kg` : above === 0 ? `0–${upTo} kg` : `>${above}–${upTo} kg`);
+
+  function render() {
+    const S = DL.S, t = S.tables[current];
+    DL.scheduledPanel(document.getElementById("scheduled"), ["band", "table", "setting"], render);
+    document.getElementById("tableTabs").innerHTML = Object.values(S.tables).map((x) => `<button data-tab="${x.id}" class="px-3 py-2 text-sm rounded-xl border border-slate-200 ${x.id === current ? "bg-emerald-800 text-white border-emerald-800" : "bg-white hover:bg-slate-50"}">${esc(x.name)}${x.bands.length ? "" : ' <span class="ml-1 text-xs rounded-full bg-rose-100 text-rose-700 px-1.5">not set</span>'}</button>`).join("");
+    document.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { current = b.dataset.tab; history.replaceState(null, "", "?table=" + current); render(); });
+    document.getElementById("tblTitle").textContent = `Weight bands · ${t.name}`;
+    const bands = sorted(t);
+    document.getElementById("emptyTable").classList.toggle("hidden", bands.length > 0);
+    document.getElementById("bandTableWrap").classList.toggle("hidden", bands.length === 0);
+    document.getElementById("btnAddBand").classList.toggle("invisible", bands.length === 0);
+    const pend = (id) => S.priceChanges.find((c) => c.status === "scheduled" && c.entity === "band" && c.entityId === id);
+    document.getElementById("bands").innerHTML = bands.map((b, i) => {
+      const p = pend(b.id), open = b.upTo == null;
+      return `<tr>
+        <td class="p-3 font-medium">${esc(b.label)}${open ? '<div class="text-xs text-slate-400 font-normal">Open band: + per-kg rate for every kg above ' + b.above + ' kg</div>' : ""}</td>
+        <td class="p-3 text-right tabular-nums">${b.above}</td>
+        <td class="p-3 text-right tabular-nums">${open ? '<span class="text-slate-400">no limit</span>' : b.upTo}</td>
+        <td class="p-3 text-right tabular-nums"><b>${naira(b.surcharge)}</b>${open ? ` <span class="text-slate-500">+ ${naira(t.perKg)}/kg</span>` : ""}${p ? `<div class="text-xs text-amber-700">→ ${naira(p.newValue)} from ${DL.fmtDay(p.effectiveAt)}</div>` : ""}</td>
+        <td class="p-3 text-right whitespace-nowrap">
+          <button data-edit="${b.id}" data-perm="delivery.surcharges.edit" class="rounded-lg border border-slate-200 px-3 py-1.5 hover:bg-slate-50">Edit</button>
+          <button data-hist="${b.id}" class="rounded-lg border border-slate-200 px-3 py-1.5 hover:bg-slate-50">History</button>
+          <button data-del="${b.id}" data-perm="delivery.surcharges.edit" class="rounded-lg border border-slate-200 px-3 py-1.5 hover:bg-rose-50 text-rose-700 ${open || bands.length <= 2 ? "invisible" : ""}">Delete</button>
+        </td></tr>`;
+    }).join("");
+    renderCards(t);
+    DL.applyPerms();
+    document.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => editBand(b.dataset.edit));
+    document.querySelectorAll("[data-hist]").forEach((b) => b.onclick = () => { const band = t.bands.find((x) => x.id === b.dataset.hist); DL.historyDrawer({ entity: "band", entityId: band.id, title: `${t.name} · ${band.label}`, rerender: render }); });
+    document.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => delBand(b.dataset.del));
+    tryWeight();
+  }
+
+  function card(title, help, rows, key) {
+    return `<section class="bg-white border border-slate-200 rounded-2xl p-5 flex flex-col">
+      <div class="flex items-start gap-2"><div class="flex-1"><div class="font-semibold">${title}</div><div class="text-sm text-slate-500 mt-1">${help}</div></div>
+      <button data-hist-card="${key}" class="text-xs text-slate-500 hover:underline">History</button></div>
+      <dl class="mt-4 space-y-2 text-sm flex-1">${rows.map(([k, v]) => `<div class="flex justify-between gap-2"><dt class="text-slate-500">${k}</dt><dd class="font-medium text-right">${v}</dd></div>`).join("")}</dl>
+      <button data-card="${key}" data-perm="delivery.surcharges.edit" class="mt-4 rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">Edit</button></section>`;
+  }
+  function renderCards(t) {
+    const st = DL.S.settings;
+    document.getElementById("cards").innerHTML =
+      card("Above the last band", `Added for every kg above ${sorted(t).filter((b) => b.upTo != null).pop()?.upTo ?? 30} kg, per unit.`, [["Per-kg rate (" + esc(t.name) + ")", t.perKg == null ? '<span class="text-rose-600">Not set</span>' : naira(t.perKg) + " / kg"], ["Rounding (all tables)", st.perKgRounding === "ceil" ? "Round up to next whole kg" : "Exact"]], "perkg") +
+      card("Route consolidation", "Taken off every unit fee when the cart has enough chargeable units going to one address. Quantities count; units on a Free product rule don't.", [["Discount", st.consolidationPct + "% off each unit"], ["Minimum chargeable units", st.consolidationMinUnits]], "consol") +
+      card("Heavy-order flags", "Dispatch flags only. Pricing is unaffected. Based on the order's total weight.", [["“Check van availability” above", st.vanCheckKg + " kg"], ["“Require larger vehicle” above", st.largeVehicleKg + " kg"]], "heavy");
+    document.querySelectorAll("[data-card]").forEach((b) => b.onclick = () => editCard(b.dataset.card));
+    document.querySelectorAll("[data-hist-card]").forEach((b) => b.onclick = () => {
+      const k = b.dataset.histCard;
+      if (k === "perkg") DL.historyDrawer({ entity: "table", entityId: current, title: `${t.name} · per-kg rate`, rerender: render });
+      else DL.historyDrawer({ entity: "setting", entityId: "settings", title: k === "consol" ? "Route consolidation" : "Heavy-order flags", rerender: render });
+    });
+  }
+
+  // Price (surcharge) is schedulable; band boundaries are structural and apply immediately.
+  function editBand(id) {
+    const t = DL.S.tables[current], b = t.bands.find((x) => x.id === id), loadedV = t.v;
+    const bands = sorted(t), i = bands.indexOf(b), open = b.upTo == null;
+    const d = DL.openDrawer(DL.drawerFrame(`Edit band · ${esc(b.label)}`, esc(t.name), `
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block text-sm"><span class="text-slate-600">Above (kg)</span><input disabled class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 bg-slate-50" value="${b.above}"></label>
+        <label class="block text-sm"><span class="text-slate-600">Up to (kg)</span><input id="fUp" type="number" step="0.01" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 ${open ? "bg-slate-50" : ""}" value="${open ? "" : b.upTo}" ${open ? 'disabled placeholder="No limit"' : ""}>
+          <div id="eUp" class="text-xs text-rose-600 mt-1"></div></label>
+      </div>
+      <div class="text-xs text-slate-400 -mt-2">“Above” follows the previous band so the table stays continuous. Changing “Up to” moves the next band's start and applies immediately.</div>
+      <label class="block text-sm"><span class="text-slate-600">Surcharge (₦)${open ? " at " + b.above + " kg" : ""}</span>
+        <input id="fSur" type="number" min="0" step="1" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" value="${b.surcharge / DL.N}"><div id="eSur" class="text-xs text-rose-600 mt-1"></div></label>
+      ${DL.effectiveHtml()}`,
+      `<button data-close-drawer class="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white hover:bg-slate-50">Cancel</button><button id="bSave" class="rounded-lg bg-emerald-700 text-white px-3 py-2 text-sm hover:bg-emerald-800">Save</button>`));
+    DL.wireEffective(d);
+    d.querySelector("#bSave").onclick = async () => {
+      const sur = Math.round(Number(d.querySelector("#fSur").value) * DL.N);
+      if (!(sur >= 0) || d.querySelector("#fSur").value === "") return (d.querySelector("#eSur").textContent = "Enter a surcharge of ₦0 or more.");
+      let up = open ? null : Number(d.querySelector("#fUp").value);
+      if (!open) {
+        const next = bands[i + 1];
+        if (!(up > b.above)) return (d.querySelector("#eUp").textContent = `Must be more than ${b.above} kg.`);
+        if (next && next.upTo != null && up >= next.upTo) return (d.querySelector("#eUp").textContent = `Must be less than ${next.upTo} kg (where the next band ends).`);
+      }
+      const eff = DL.readEffective(d); if (!eff.ok) return;
+      if (up !== b.upTo || sur !== b.surcharge) {
+        if (!(await DL.confirmModal({ title: "Save band?", body: [up !== b.upTo ? `Boundary ${b.upTo} kg → <b>${up} kg</b>, effective now` : "", sur !== b.surcharge ? `Surcharge ${naira(b.surcharge)} → <b>${naira(sur)}</b>, ${eff.label}` : ""].filter(Boolean).join("<br>") }))) return;
+      } else return DL.toast("Nothing changed");
+      if (DL.staleCheck(t, loadedV)) return;
+      if (up !== b.upTo) {
+        const next = bands[i + 1], old = b.upTo;
+        b.upTo = up; b.label = bandLabel(b.above, up);
+        if (next) { next.above = up; next.label = bandLabel(up, next.upTo); }
+        t.v++; DL.log("Weight Surcharges", `${t.name} · ${b.label}`, "Up to (kg)", old + " kg", up + " kg", "");
+      }
+      if (sur !== b.surcharge) DL.priceChange({ entity: "band", entityId: b.id, field: "surcharge", label: "Surcharge", item: `${t.name} · ${b.label}`, newValue: sur, fmt: "money", effectiveAt: eff.at });
+      if (DL.trySave(eff.at ? "Change scheduled" : `${b.label} updated`)) { DL.closeDrawer(); render(); }
+    };
+  }
+
+  function addBand() {
+    const t = DL.S.tables[current], bands = sorted(t), open = bands[bands.length - 1], lastFixed = bands[bands.length - 2];
+    const start = lastFixed ? lastFixed.upTo : 0;
+    const d = DL.openDrawer(DL.drawerFrame("Add band", `${esc(t.name)} · inserted before the open “${esc(open.label)}” band`, `
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block text-sm"><span class="text-slate-600">Above (kg)</span><input disabled class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 bg-slate-50" value="${start}"></label>
+        <label class="block text-sm"><span class="text-slate-600">Up to (kg)</span><input id="fUp" type="number" step="0.01" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" value="${start + 10}"><div id="eUp" class="text-xs text-rose-600 mt-1"></div></label>
+      </div>
+      <label class="block text-sm"><span class="text-slate-600">Surcharge (₦)</span><input id="fSur" type="number" min="0" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" value="${open.surcharge / DL.N}"></label>
+      <div class="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm text-slate-600">The open band will then start above the new “Up to”, and the per-kg rate will apply from there.</div>`,
+      `<button data-close-drawer class="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white hover:bg-slate-50">Cancel</button><button id="bAdd" class="rounded-lg bg-emerald-700 text-white px-3 py-2 text-sm hover:bg-emerald-800">Add band</button>`));
+    d.querySelector("#bAdd").onclick = () => {
+      const up = Number(d.querySelector("#fUp").value), sur = Math.round(Number(d.querySelector("#fSur").value) * DL.N);
+      if (!(up > start)) return (d.querySelector("#eUp").textContent = `Must be more than ${start} kg.`);
+      const nb = { id: DL.uid("b"), label: bandLabel(start, up), above: start, upTo: up, surcharge: sur };
+      t.bands.push(nb); open.above = up; open.label = bandLabel(up, null); t.v++;
+      DL.log("Weight Surcharges", `${t.name} · ${nb.label}`, "Band added", "—", naira(sur), "");
+      if (DL.trySave(`${nb.label} added`)) { DL.closeDrawer(); render(); }
+    };
+  }
+
+  async function delBand(id) {
+    const t = DL.S.tables[current], bands = sorted(t), i = bands.findIndex((b) => b.id === id), b = bands[i], prev = bands[i - 1], next = bands[i + 1];
+    const into = prev || next;
+    if (!(await DL.confirmModal({ title: `Delete ${esc(b.label)}?`, body: `Its weight range merges into <b>${esc(into.label)}</b> so the table stays continuous. Placed orders are unaffected.`, ok: "Delete band", danger: true }))) return;
+    if (prev) { prev.upTo = b.upTo; prev.label = bandLabel(prev.above, prev.upTo); } else { next.above = b.above; next.label = bandLabel(next.above, next.upTo); }
+    t.bands = t.bands.filter((x) => x.id !== id); t.v++;
+    DL.log("Weight Surcharges", `${t.name} · ${b.label}`, "Band deleted", naira(b.surcharge), "—", "");
+    if (DL.trySave("Band deleted")) render();
+  }
+
+  function editCard(key) {
+    const S = DL.S, t = S.tables[current], st = S.settings;
+    const F = {
+      perkg: [["perKg", "Per-kg rate (₦)", "table", current, "money", t.perKg], ["perKgRounding", "Rounding", "setting", "settings", "rounding", st.perKgRounding]],
+      consol: [["consolidationPct", "Discount (%)", "setting", "settings", "pct", st.consolidationPct, 0, 90], ["consolidationMinUnits", "Minimum chargeable units", "setting", "settings", "raw", st.consolidationMinUnits, 2, 50]],
+      heavy: [["vanCheckKg", "“Check van availability” above (kg)", "setting", "settings", "kg", st.vanCheckKg, 1, 1000], ["largeVehicleKg", "“Require larger vehicle” above (kg)", "setting", "settings", "kg", st.largeVehicleKg, 1, 1000]],
+    }[key];
+    const title = { perkg: "Above the last band", consol: "Route consolidation", heavy: "Heavy-order flags" }[key];
+    const d = DL.openDrawer(DL.drawerFrame(title, key === "perkg" ? esc(t.name) : "Applies to all tables", F.map(([k, label, , , fmt, v, min, max]) => fmt === "rounding"
+      ? `<label class="block text-sm"><span class="text-slate-600">${label}</span><select data-k="${k}" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"><option value="exact" ${v === "exact" ? "selected" : ""}>Exact (default)</option><option value="ceil" ${v === "ceil" ? "selected" : ""}>Round up to next whole kg</option></select>
+         <div class="text-xs text-slate-400 mt-1">Exact: 35.4 kg → 5.4 × rate. Round up: 35.4 kg → 6 × rate.</div></label>`
+      : `<label class="block text-sm"><span class="text-slate-600">${label}</span><input data-k="${k}" type="number" ${min != null ? `min="${min}" max="${max}"` : 'min="0"'} step="1" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" value="${v == null ? "" : fmt === "money" ? v / DL.N : v}">
+         ${min != null ? `<div class="text-xs text-slate-400 mt-1">Range ${min}–${max}</div>` : ""}<div data-e="${k}" class="text-xs text-rose-600 mt-1"></div></label>`).join("") + DL.effectiveHtml(),
+      `<button data-close-drawer class="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white hover:bg-slate-50">Cancel</button><button id="cSave" class="rounded-lg bg-emerald-700 text-white px-3 py-2 text-sm hover:bg-emerald-800">Save</button>`));
+    DL.wireEffective(d);
+    d.querySelector("#cSave").onclick = async () => {
+      const changes = [];
+      for (const [k, label, entity, entityId, fmt, v, min, max] of F) {
+        const raw = d.querySelector(`[data-k="${k}"]`).value;
+        let nv = fmt === "rounding" ? raw : fmt === "money" ? Math.round(Number(raw) * DL.N) : Number(raw);
+        if (fmt !== "rounding" && (raw === "" || !Number.isFinite(nv) || (min != null && (nv < min || nv > max)) || nv < 0)) { d.querySelector(`[data-e="${k}"]`).textContent = min != null ? `Enter a value from ${min} to ${max}.` : "Enter ₦0 or more."; return; }
+        if (nv !== v) changes.push({ k, label: label.replace(/ \(.+\)$/, ""), entity, entityId, fmt, nv, v });
+      }
+      if (key === "heavy") {
+        const van = changes.find((c) => c.k === "vanCheckKg")?.nv ?? st.vanCheckKg, lg = changes.find((c) => c.k === "largeVehicleKg")?.nv ?? st.largeVehicleKg;
+        if (lg <= van) { d.querySelector('[data-e="largeVehicleKg"]').textContent = "Must be higher than the van-check limit."; return; }
+      }
+      if (!changes.length) return DL.toast("Nothing changed");
+      const eff = DL.readEffective(d); if (!eff.ok) return;
+      if (!(await DL.confirmModal({ title: "Save changes?", body: changes.map((c) => `${c.label}: ${DL.fmtValue(c.v, c.fmt)} → <b>${DL.fmtValue(c.nv, c.fmt)}</b>`).join("<br>") + `<div class="mt-2 text-slate-500">${eff.label}</div>` }))) return;
+      changes.forEach((c) => DL.priceChange({ entity: c.entity, entityId: c.entityId, field: c.k, label: c.label, item: c.entity === "table" ? t.name : title, newValue: c.nv, fmt: c.fmt, effectiveAt: eff.at }));
+      if (DL.trySave(eff.at ? "Change scheduled" : `${title} updated`)) { DL.closeDrawer(); render(); }
+    };
+  }
+
+  function tryWeight() {
+    const t = DL.S.tables[current], kg = Number(document.getElementById("tryKg").value);
+    if (!t.bands.length) return (document.getElementById("tryOut").textContent = "This table has no bands yet.");
+    const s = DL.surchargeFor(kg, t);
+    document.getElementById("tryOut").innerHTML = `→ band <b>${esc(s.band.label)}</b>, surcharge <b>${DL.nairaExact(s.kobo)}</b>${s.perKgPart ? ` (${naira(s.band.surcharge)} + ${+s.extraKg.toFixed(2)} kg × ${naira(t.perKg)})` : ""}`;
+  }
+
+  document.getElementById("tryKg").addEventListener("input", tryWeight);
+  document.getElementById("btnAddBand").onclick = addBand;
+  document.getElementById("btnCopyStd").onclick = () => {
+    const t = DL.S.tables[current], std = DL.S.tables.std;
+    t.bands = std.bands.map((b) => ({ ...b, id: DL.uid("b") })); t.perKg = std.perKg; t.v++;
+    DL.log("Weight Surcharges", t.name, "Bands created", "None", "Copied from Standard (" + std.bands.length + " bands)", "");
+    if (DL.trySave("Bands copied. Review each surcharge for partner pricing")) render();
+  };
+  if (ok) { render(); document.addEventListener("dl:external-change", render); }
+</script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Saleko Admin • LGAs</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-slate-50 text-slate-900">
+  <div class="min-h-screen flex">
+    <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 hidden md:flex flex-col"></aside>
+    <main class="flex-1 min-w-0">
+      <header id="topbar" class="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-slate-200"></header>
+      <div id="content" class="px-4 md:px-8 py-6 space-y-6">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="stats"></div>
+
+        <section class="bg-white border border-slate-200 rounded-2xl">
+          <div class="p-5 border-b border-slate-200 flex items-center gap-3 flex-wrap">
+            <div class="flex-1">
+              <div class="font-semibold">Lagos LGAs</div>
+              <div class="text-sm text-slate-500 mt-1">The default zone is used when a customer picks “My landmark is not listed”. LGAs spanning two zones default to the higher one, so Saleko never undercharges.</div>
+            </div>
+            <input id="q" placeholder="Search LGA or area" class="rounded-xl border border-slate-200 px-3 py-2 text-sm w-60">
+          </div>
+          <div class="overflow-x-auto">
+            <table class="min-w-[1000px] w-full text-sm">
+              <thead class="bg-slate-50 text-slate-500">
+                <tr><th class="p-3 text-left">LGA</th><th class="p-3 text-left">Key areas</th><th class="p-3 text-left">Region</th><th class="p-3 text-left">Default zone</th><th class="p-3 text-left">Spans multiple zones</th><th class="p-3 text-right">Landmarks</th><th class="p-3 text-left">Status</th><th class="p-3 text-right"></th></tr>
+              </thead>
+              <tbody id="rows" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+<script src="delivery_seed.js"></script>
+<script src="delivery_core.js"></script>
+<script>
+  const { esc } = DL;
+  const ok = DL.mount({ active: "delivery_lgas.html", title: "LGAs", subtitle: "Delivery → LGAs · 20 official Lagos State Local Government Areas", needs: "delivery.view" });
+
+  function render() {
+    const S = DL.S, q = document.getElementById("q").value.trim().toLowerCase();
+    const count = (name) => S.landmarks.filter((l) => l.lga === name && l.status === "active").length;
+    document.getElementById("stats").innerHTML = [["LGAs", S.lgas.length], ["Active", S.lgas.filter((l) => l.status === "active").length], ["Span multiple zones", S.lgas.filter((l) => l.spans).length], ["Landmarks", S.landmarks.length]]
+      .map(([k, v]) => `<div class="bg-white border border-slate-200 rounded-2xl p-4"><div class="text-xs text-slate-500">${k}</div><div class="text-2xl font-semibold mt-1">${v}</div></div>`).join("");
+    document.getElementById("rows").innerHTML = S.lgas.filter((l) => !q || (l.name + " " + l.keyAreas).toLowerCase().includes(q)).map((l) => `
+      <tr class="${l.status === "active" ? "" : "text-slate-400 bg-slate-50"}">
+        <td class="p-3 font-medium whitespace-nowrap">${esc(l.name)}</td>
+        <td class="p-3 text-slate-600 max-w-xs">${esc(l.keyAreas)}</td>
+        <td class="p-3 whitespace-nowrap">${esc(l.region)}</td>
+        <td class="p-3 whitespace-nowrap"><span class="font-semibold">Zone ${l.defaultZone}</span><div class="text-xs text-slate-400">Workbook: ${esc(l.workbookZone)}</div></td>
+        <td class="p-3">${l.spans ? `<span class="inline-flex items-center gap-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 text-xs cursor-help" title="${esc(l.note)}">Yes <span aria-hidden="true">ⓘ</span></span><div class="text-xs text-slate-500 mt-1 max-w-[260px]">${esc(l.note)}</div>` : '<span class="text-slate-500">No</span>' + (l.note ? `<div class="text-xs text-slate-400 mt-1 max-w-[260px]">${esc(l.note)}</div>` : "")}</td>
+        <td class="p-3 text-right"><a class="text-emerald-700 hover:underline" href="delivery_landmarks.html?lga=${encodeURIComponent(l.name)}">${count(l.name)}</a></td>
+        <td class="p-3">${l.status === "active" ? '<span class="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-xs">Active</span>' : '<span class="rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 text-xs">Inactive</span>'}</td>
+        <td class="p-3 text-right"><button data-edit="${l.id}" data-perm="delivery.lgas.edit" class="rounded-lg border border-slate-200 px-3 py-1.5 hover:bg-slate-50">Edit</button></td>
+      </tr>`).join("") || `<tr><td colspan="8" class="p-8 text-center text-slate-500">No LGA matches “${esc(q)}”.</td></tr>`;
+    DL.applyPerms();
+    document.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => edit(b.dataset.edit));
+  }
+
+  function edit(id) {
+    const S = DL.S, l = S.lgas.find((x) => x.id === id), loadedV = l.v || 1;
+    const d = DL.openDrawer(DL.drawerFrame(`Edit ${esc(l.name)}`, esc(l.region), `
+      <div class="rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm"><div class="text-slate-500">Key areas</div><div>${esc(l.keyAreas)}</div>
+        <div class="text-slate-500 mt-2">Workbook zone / distance</div><div>${esc(l.workbookZone)} · ${esc(l.distance)}</div>${l.note ? `<div class="text-slate-500 mt-2">Note</div><div>${esc(l.note)}</div>` : ""}</div>
+      <label class="block text-sm"><span class="text-slate-600">Default zone</span>
+        <select id="fZone" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 bg-white">${DL.ALL_ZONES.map((z) => `<option value="${z}" ${z === l.defaultZone ? "selected" : ""}>Zone ${z}</option>`).join("")}</select>
+        <div class="text-xs text-slate-400 mt-1">Only used for “landmark not listed”. Picked landmarks always use their own zone.</div></label>
+      <label class="block text-sm"><span class="text-slate-600">Status</span>
+        <select id="fStatus" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"><option value="active">Active</option><option value="inactive">Inactive (hidden from the checkout dropdown)</option></select></label>
+      <label class="block text-sm"><span class="text-slate-600">Reason for change</span><input id="fReason" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="Optional"></label>`,
+      `<button data-close-drawer class="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white hover:bg-slate-50">Cancel</button><button id="sv" class="rounded-lg bg-emerald-700 text-white px-3 py-2 text-sm hover:bg-emerald-800">Save</button>`));
+    d.querySelector("#fStatus").value = l.status;
+    d.querySelector("#sv").onclick = async () => {
+      const z = Number(d.querySelector("#fZone").value), st = d.querySelector("#fStatus").value, reason = d.querySelector("#fReason").value.trim();
+      if (z === l.defaultZone && st === l.status) return DL.toast("Nothing changed");
+      if (st === "inactive" && l.status === "active" && !(await DL.confirmModal({ title: `Deactivate ${esc(l.name)}?`, body: `Customers won't be able to pick ${esc(l.name)} or any of its landmarks at checkout. Existing orders are unaffected.`, ok: "Deactivate", danger: true }))) return;
+      if (DL.staleCheck(l, loadedV)) return;
+      if (z !== l.defaultZone) { DL.log("LGAs", l.name, "Default zone", "Zone " + l.defaultZone, "Zone " + z, reason); l.defaultZone = z; }
+      if (st !== l.status) { DL.log("LGAs", l.name, "Status", l.status, st, reason); l.status = st; }
+      l.v = loadedV + 1; l.updatedBy = DL.me().name; l.updatedAt = new Date().toISOString();
+      if (DL.trySave(`${l.name} updated`)) { DL.closeDrawer(); render(); }
+    };
+  }
+
+  document.getElementById("q").addEventListener("input", render);
+  if (ok) { render(); document.addEventListener("dl:external-change", render); }
+</script>
+</body>
+</html>

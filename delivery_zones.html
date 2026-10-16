@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Saleko Admin • Zones & Base Fees</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-slate-50 text-slate-900">
+  <div class="min-h-screen flex">
+    <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 hidden md:flex flex-col"></aside>
+    <main class="flex-1 min-w-0">
+      <header id="topbar" class="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-slate-200"></header>
+      <div id="content" class="px-4 md:px-8 py-6 space-y-6">
+        <div id="scheduled"></div>
+
+        <section class="bg-white border border-slate-200 rounded-2xl">
+          <div class="p-5 border-b border-slate-200 flex items-start gap-3 flex-wrap">
+            <div class="flex-1">
+              <div class="font-semibold">Zones</div>
+              <div class="text-sm text-slate-500 mt-1">Every distance is measured from <b id="origin"></b>. Fee per unit = <b>Zone Base Fee + Weight Surcharge</b>.</div>
+            </div>
+            <a href="delivery_surcharges.html" class="text-sm text-emerald-700 hover:underline">Weight surcharges →</a>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="min-w-[1100px] w-full text-sm">
+              <thead class="bg-slate-50 text-slate-500">
+                <tr>
+                  <th class="p-3 text-left">Zone</th>
+                  <th class="p-3 text-left">Definition</th>
+                  <th class="p-3 text-left">Distance (km)</th>
+                  <th class="p-3 text-left">Delivered by</th>
+                  <th class="p-3 text-right">Base fee</th>
+                  <th class="p-3 text-left">Surcharge table</th>
+                  <th class="p-3 text-left">Availability</th>
+                  <th class="p-3 text-left">Last changed</th>
+                  <th class="p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="rows" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="bg-white border border-slate-200 rounded-2xl">
+          <div class="p-5 border-b border-slate-200 flex items-start gap-3 flex-wrap">
+            <div class="flex-1">
+              <div class="font-semibold">Reference price matrix <span class="ml-1 text-xs font-normal rounded-full bg-slate-100 text-slate-600 px-2 py-0.5">read-only</span></div>
+              <div class="text-sm text-slate-500 mt-1">Generated live from base fees + standard weight surcharges, so it can never drift from real prices. Single-unit price, before any discounts.</div>
+            </div>
+          </div>
+          <div class="overflow-x-auto p-5">
+            <table class="min-w-[720px] w-full text-sm border border-slate-200 rounded-xl overflow-hidden">
+              <thead id="mxHead" class="bg-slate-50 text-slate-500"></thead>
+              <tbody id="mxBody" class="divide-y divide-slate-100"></tbody>
+            </table>
+            <div class="text-xs text-slate-400 mt-3">Above 30 kg: 20–30 kg price + per-kg rate for every kg above 30. Zones 6–7 use their own surcharge tables.</div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+<script src="delivery_seed.js"></script>
+<script src="delivery_core.js"></script>
+<script>
+  const { esc, naira, fmtDate } = DL;
+  const ok = DL.mount({ active: "delivery_zones.html", title: "Zones & Base Fees", subtitle: "Delivery → Zones & Base Fees", needs: "delivery.view" });
+
+  function render() {
+    const S = DL.S;
+    document.getElementById("origin").textContent = S.settings.origin;
+    DL.scheduledPanel(document.getElementById("scheduled"), ["zone"], render);
+    const pending = (id) => S.priceChanges.filter((c) => c.status === "scheduled" && c.entity === "zone" && c.entityId === String(id));
+    document.getElementById("rows").innerHTML = S.zones.map((z) => {
+      const t = S.tables[z.table];
+      const priced = z.baseFee != null && t.bands.length;
+      const dist = z.id === 6 ? "Outside Lagos" : `${z.from ?? "—"} – ${z.to == null ? "no limit" : z.to}`;
+      const p = pending(z.id);
+      return `<tr class="${z.available ? "" : "bg-slate-50 text-slate-400"}">
+        <td class="p-3 font-semibold whitespace-nowrap">Zone ${z.id}</td>
+        <td class="p-3"><div>${esc(z.definition)}</div><div class="text-xs text-slate-400">${esc(z.examples)}</div></td>
+        <td class="p-3 whitespace-nowrap">${dist}</td>
+        <td class="p-3 whitespace-nowrap">${z.carrier === "van" ? "Saleko van" : '<span class="rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 text-xs">Logistics partner</span>'}</td>
+        <td class="p-3 text-right whitespace-nowrap">${z.baseFee == null ? '<span class="text-rose-600 font-medium">Not set</span>' : `<b>${naira(z.baseFee)}</b>`}
+          ${p.length ? `<div class="text-xs text-amber-700">→ ${DL.fmtValue(p[0].newValue, p[0].fmt)} from ${DL.fmtDay(p[0].effectiveAt)}</div>` : ""}</td>
+        <td class="p-3"><a class="text-emerald-700 hover:underline" href="delivery_surcharges.html?table=${t.id}">${esc(t.name)}</a>${t.bands.length ? "" : '<div class="text-xs text-rose-600">No bands yet</div>'}</td>
+        <td class="p-3">${!z.available ? '<span class="rounded-full bg-slate-100 text-slate-500 px-2 py-0.5 text-xs">Not available online</span>'
+          : priced ? '<span class="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-xs">Available</span>'
+          : '<span class="rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 text-xs" title="Checkout shows “Delivery price not set for this area. Contact support” and blocks payment">Blocked: price not set</span>'}</td>
+        <td class="p-3 whitespace-nowrap text-xs text-slate-500">${fmtDate(z.updatedAt)}<div>${esc(z.updatedBy)}</div></td>
+        <td class="p-3 text-right whitespace-nowrap">
+          <button data-edit="${z.id}" data-perm="delivery.zones.edit" class="rounded-lg border border-slate-200 px-3 py-1.5 hover:bg-slate-50">Edit</button>
+          <button data-hist="${z.id}" class="rounded-lg border border-slate-200 px-3 py-1.5 hover:bg-slate-50">History</button>
+        </td></tr>`;
+    }).join("");
+    DL.applyPerms(document.getElementById("rows"));
+    document.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => edit(Number(b.dataset.edit)));
+    document.querySelectorAll("[data-hist]").forEach((b) => b.onclick = () => DL.historyDrawer({ entity: "zone", entityId: b.dataset.hist, title: "Zone " + b.dataset.hist, rerender: render }));
+    renderMatrix();
+  }
+
+  function renderMatrix() {
+    const S = DL.S, t = S.tables.std;
+    const fixed = t.bands.filter((b) => b.upTo != null).sort((a, b) => a.above - b.above);
+    document.getElementById("mxHead").innerHTML = `<tr><th class="p-3 text-left">Zone</th>${fixed.map((b) => `<th class="p-3 text-right">${b.above}–${b.upTo} kg</th>`).join("")}</tr>`;
+    document.getElementById("mxBody").innerHTML = S.zones.filter((z) => z.table === "std").map((z) => `<tr><td class="p-3 font-medium">Zone ${z.id}</td>${fixed.map((b) => `<td class="p-3 text-right tabular-nums">${naira(z.baseFee + b.surcharge)}</td>`).join("")}</tr>`).join("");
+  }
+
+  // Validation: Zones 1–5 distance ranges must be continuous from 0 with no gaps/overlaps.
+  function validateRanges(zones) {
+    const city = zones.filter((z) => z.id <= 5).sort((a, b) => a.id - b.id);
+    if (city[0].from !== 0) return { id: 1, field: "from", msg: "Zone 1 must start at 0 km." };
+    for (let i = 0; i < city.length; i++) {
+      const z = city[i];
+      if (z.to != null && z.to <= z.from) return { id: z.id, field: "to", msg: "“To” must be greater than “From”." };
+      if (z.to == null && i < city.length - 1) return { id: z.id, field: "to", msg: `Only Zone 5 can have no upper limit; Zone ${z.id + 1} starts after it.` };
+      if (i > 0 && z.from !== city[i - 1].to) return { id: z.id, field: "from", msg: z.from > city[i - 1].to ? `Gap: Zone ${city[i - 1].id} ends at ${city[i - 1].to} km but Zone ${z.id} starts at ${z.from} km.` : `Overlap: Zone ${city[i - 1].id} runs to ${city[i - 1].to} km.` };
+    }
+    return null;
+  }
+
+  function edit(id) {
+    const S = DL.S, z = S.zones.find((x) => x.id === id), loadedV = z.v;
+    const city = id <= 5;
+    const d = DL.openDrawer(DL.drawerFrame(`Edit Zone ${id}`, `${z.carrier === "van" ? "Saleko van" : "Logistics partner"} · version ${z.v}`, `
+      <label class="block text-sm"><span class="text-slate-600">Definition</span>
+        <input id="fDef" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" value="${esc(z.definition)}" maxlength="60"></label>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block text-sm"><span class="text-slate-600">Distance from (km)</span>
+          <input id="fFrom" type="number" min="0" step="0.1" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" value="${z.from ?? ""}" ${id === 6 ? "disabled" : ""}><div data-err="from" class="text-xs text-rose-600 mt-1"></div></label>
+        <label class="block text-sm"><span class="text-slate-600">Distance to (km)</span>
+          <input id="fTo" type="number" min="0" step="0.1" placeholder="No limit" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" value="${z.to ?? ""}" ${id === 6 ? "disabled" : ""}><div data-err="to" class="text-xs text-rose-600 mt-1"></div></label>
+      </div>
+      ${city ? '<div class="text-xs text-slate-400 -mt-2">Zones 1–5 must run continuously from 0 km with no gaps or overlaps. Changing a boundary re-zones landmarks that aren\'t overridden.</div>' : '<div class="text-xs text-slate-400 -mt-2">Zones 6–7 aren\'t distance-derived: landmarks reach them via the Ogun State tick or an override.</div>'}
+      <label class="block text-sm"><span class="text-slate-600">Delivered by</span>
+        <select id="fCarrier" class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"><option value="van">Saleko van</option><option value="partner">Logistics partner</option></select></label>
+      <label class="block text-sm"><span class="text-slate-600">Base fee (₦)</span>
+        <div class="mt-1 flex items-center rounded-xl border border-slate-200 focus-within:ring-2 focus-within:ring-emerald-200"><span class="pl-3 text-slate-400">₦</span>
+        <input id="fFee" type="number" min="0" max="1000000" step="1" class="w-full rounded-xl px-2 py-2 focus:outline-none" value="${z.baseFee == null ? "" : z.baseFee / DL.N}" placeholder="Not set"></div>
+        <div data-err="fee" class="text-xs text-rose-600 mt-1"></div></label>
+      <label class="flex items-center gap-2 text-sm"><input id="fAvail" type="checkbox" class="h-4 w-4 rounded" ${z.available ? "checked" : ""}> Available online <span class="text-slate-400">(off = customers can't check out to this zone)</span></label>
+      ${DL.effectiveHtml()}
+      <div id="summary" class="hidden rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm"></div>`,
+      `<button data-close-drawer class="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white hover:bg-slate-50">Cancel</button>
+       <button id="btnReview" class="rounded-lg bg-emerald-700 text-white px-3 py-2 text-sm hover:bg-emerald-800">Review changes</button>`));
+    d.querySelector("#fCarrier").value = z.carrier;
+    DL.wireEffective(d);
+    const num = (v) => (v === "" ? null : Number(v));
+    let stage = "edit", pending = [];
+    d.querySelector("#btnReview").onclick = () => {
+      d.querySelectorAll("[data-err]").forEach((e) => (e.textContent = ""));
+      if (stage === "confirm") return commit();
+      const next = { definition: d.querySelector("#fDef").value.trim(), from: num(d.querySelector("#fFrom").value), to: num(d.querySelector("#fTo").value), carrier: d.querySelector("#fCarrier").value, baseFee: d.querySelector("#fFee").value === "" ? null : Math.round(Number(d.querySelector("#fFee").value) * DL.N), available: d.querySelector("#fAvail").checked };
+      if (next.baseFee == null && z.baseFee != null) return (d.querySelector('[data-err="fee"]').textContent = "Base fee can't be empty.");
+      if (next.baseFee != null && (next.baseFee < 0 || next.baseFee > 1000000 * DL.N || next.baseFee % DL.N)) return (d.querySelector('[data-err="fee"]').textContent = "Whole naira between ₦0 and ₦1,000,000.");
+      if (city) {
+        const err = validateRanges(S.zones.map((x) => (x.id === id ? { ...x, from: next.from, to: next.to } : x)));
+        if (err) { const box = d.querySelector(`[data-err="${err.id === id ? err.field : "to"}"]`); box.textContent = err.msg; return; }
+      }
+      const eff = DL.readEffective(d); if (!eff.ok) return;
+      const F = [["definition", "Definition", "raw"], ["from", "Distance from", "km"], ["to", "Distance to", "km"], ["carrier", "Delivered by", "carrier"], ["baseFee", "Base fee", "money"], ["available", "Availability", "bool"]];
+      pending = F.filter(([k]) => next[k] !== z[k]).map(([k, label, fmt]) => ({ field: k, label, fmt, newValue: next[k] }));
+      if (!pending.length) return DL.toast("Nothing changed");
+      pending.eff = eff;
+      const s = d.querySelector("#summary");
+      s.innerHTML = `<div class="font-medium mb-1">Confirm</div>` + pending.map((p) => `<div>Zone ${id} ${p.label.toLowerCase()} <b>${DL.fmtValue(z[p.field], p.fmt)} → ${DL.fmtValue(p.newValue, p.fmt)}</b>, ${eff.label}</div>`).join("");
+      s.classList.remove("hidden");
+      stage = "confirm"; d.querySelector("#btnReview").textContent = "Confirm & save";
+    };
+    function commit() {
+      if (DL.staleCheck(z, loadedV)) return;
+      pending.forEach((p) => DL.priceChange({ entity: "zone", entityId: id, field: p.field, label: p.label, item: `Zone ${id}`, newValue: p.newValue, fmt: p.fmt, effectiveAt: pending.eff.at }));
+      if (DL.trySave(pending.eff.at ? `Zone ${id} change scheduled` : `Zone ${id} updated`)) { DL.closeDrawer(); render(); }
+    }
+  }
+
+  if (ok) { render(); document.addEventListener("dl:external-change", render); }
+</script>
+</body>
+</html>
